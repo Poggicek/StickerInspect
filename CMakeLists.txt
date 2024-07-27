@@ -9,6 +9,7 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 include(${PROJECT_SOURCE_DIR}/cmake/platform.cmake)
+include_directories(src/dll)
 include_directories(src)
 
 # Include all vendor libraries, also sets up HL2SDK and Metamod
@@ -18,5 +19,5 @@ add_subdirectory(vendor)
 
 include(${PROJECT_SOURCE_DIR}/cmake/protobuf.cmake)
 
-# Core library
+# Source
 add_subdirectory(src)

@@ -229,7 +229,7 @@ void Draw(bool* isOpen)
 			
 			if (inMenuButton)
 				RunInspect(protoData);
-			else(inGameButton)
+			else if(inGameButton)
 				RunInGameInspect(protoData);
 		};
 
