@@ -14,7 +14,15 @@ When the game loads, launch `Launcher.exe` which will automatically load the dll
 
 Whenever you start the game you have to inspect any sticker so that it internally creates a new items_game definition, then you press the `Refresh` button in the tool to load all the stickers.
 
-Use [CS2Inspects website](https://cs2inspects.com/) to create an inspect link which includes any stickers on any position.
+Use [CS2Inspects website](https://cs2inspects.com/) to create an inspect link which includes any stickers on any position and input them into the GUI
+
+![image](https://github.com/user-attachments/assets/a24a1ed9-b485-4f99-b85d-7fac7e411fcc)
+
+> [!CAUTION]
+> Stickers are not numbered by the site's numbering but by their order in the list. That means if you have a sticker in slot #2 and #4, you have to input them as #1 and #2 in the program.
+
+> [!NOTE]  
+> Leaving sticker positions as `<none>` will leave them as the original from the inspect link, this allows you to make crafts with both your workshop stickers and stickers in game.
 
 ## Can I get VAC banned?
 
