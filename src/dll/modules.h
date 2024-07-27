@@ -24,6 +24,8 @@ namespace Modules {
 
 inline std::unique_ptr<CModule> fileSystem = nullptr;
 inline std::unique_ptr<CModule> engine = nullptr;
+inline std::unique_ptr<CModule> server = nullptr;
+inline std::unique_ptr<CModule> schemaSystem = nullptr;
 
 
 } // namespace Modules

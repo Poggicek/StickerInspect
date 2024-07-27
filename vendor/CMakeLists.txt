@@ -48,11 +48,17 @@ endif()
 
 include(imgui.cmake)
 
+set(SAFETYHOOK_FETCH_ZYDIS ON)
+add_subdirectory(safetyhook)
+
 set_target_properties(
 	HL2SDK
 	PROPERTIES FOLDER SDK
 )
 set_target_properties(
 	imgui
+	safetyhook
+	Zycore
+	Zydis
 	PROPERTIES FOLDER Libraries
 )

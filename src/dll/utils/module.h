@@ -153,7 +153,10 @@ public:
 		void *pInterface = fn(name, nullptr);
 
 		if (!pInterface)
+		{
+			printf("Could not find %s in %s\n", name, m_pszModule);
 			Error("Could not find %s in %s\n", name, m_pszModule);
+		}
 
 		ConMsg("Found interface %s in %s\n", name, m_pszModule);
 

@@ -30,6 +30,12 @@
 #include <sstream>
 #include <iomanip>
 #include <eiface.h>
+#include <entity2/entitysystem.h>
+#include "cs2_sdk/entity/cbaseplayercontroller.h"
+#include "cs2_sdk/entity/cbaseplayerpawn.h"
+#include "cs2_sdk/entity/weapons.h"
+#include "timer.h"
+#include "dllmain.h"
 
 namespace GUI::StickerInspect
 {
@@ -45,6 +51,7 @@ static int g_currentStickerIndex = -1;
 static bool g_isDirty = true;
 static std::vector<std::pair<std::string, int>> g_vecStickers;
 static StickerOverride g_Stickers[5];
+static std::map<int, bool> g_LegacyModelMap;
 
 void RefreshStickerList()
 {
@@ -57,12 +64,21 @@ void RefreshStickerList()
 	{
 		for (KeyValues* pKey = pKV->GetFirstSubKey(); pKey; pKey = pKey->GetNextKey())
 		{
+			// paint kits, legacy model check
+			if (!V_stricmp(pKey->GetName(), "paint_kits"))
+			{
+				for (KeyValues* pPaintKey = pKey->GetFirstSubKey(); pPaintKey; pPaintKey = pPaintKey->GetNextKey())
+				{
+					g_LegacyModelMap[atoi(pPaintKey->GetName())] = pPaintKey->GetBool("use_legacy_model", false);
+				}
+			}
+
+			// workshop sitckers
 			if (V_stricmp(pKey->GetName(), "sticker_kits"))
 				continue;
 
 			for (KeyValues* pStickerKey = pKey->GetFirstSubKey(); pStickerKey; pStickerKey = pStickerKey->GetNextKey())
 			{
-
 				const char* itemName = pStickerKey->GetString("item_name", "");
 
 				if (V_stricmp(itemName, "#CSGO_Workshop"))
@@ -144,7 +160,9 @@ void RunInspect(std::string& protoData)
 
 	auto byteArray = HexToBytes(protoData);
 	bool success = itemPreviewPB.ParseFromArray(byteArray.data(), byteArray.size());
-	printf("status: %i %llu\n", success, byteArray.size());
+
+	if (!success)
+		return;
 
 	size_t i = 0;
 	for (auto& sticker : *itemPreviewPB.mutable_stickers())
@@ -175,8 +193,51 @@ void RunInspect(std::string& protoData)
 	std::string outCommand("csgo_econ_action_preview ");
 	outCommand += bytes_to_hex_string(serializedProto);
 
-	Interfaces::engineServer->ServerCommand(outCommand.c_str());
+	// Jump to main thread so that we won't run this from GUI thread
+	NextTick([outCommand]() {
+		Interfaces::engineServer->ServerCommand(outCommand.c_str());
+	});
 }
+
+std::map<int, const char*> g_DefIndexMap {
+	{1, "weapon_deagle"},
+	{2, "weapon_elite"},
+	{3, "weapon_fiveseven"},
+	{4, "weapon_glock"},
+	{7, "weapon_ak47"},
+	{8, "weapon_aug"},
+	{9, "weapon_awp"},
+	{10, "weapon_famas"},
+	{11, "weapon_g3sg1"},
+	{13, "weapon_galilar"},
+	{14, "weapon_m249"},
+	{16, "weapon_m4a1"},
+	{17, "weapon_mac10"},
+	{19, "weapon_p90"},
+	{23, "weapon_mp5sd"},
+	{24, "weapon_ump45"},
+	{25, "weapon_xm1014"},
+	{26, "weapon_bizon"},
+	{27, "weapon_mag7"},
+	{28, "weapon_negev"},
+	{29, "weapon_sawedoff"},
+	{30, "weapon_tec9"},
+	{31, "weapon_taser"},
+	{32, "weapon_hkp2000"},
+	{33, "weapon_mp7"},
+	{34, "weapon_mp9"},
+	{35, "weapon_nova"},
+	{36, "weapon_p250"},
+	{38, "weapon_scar20"},
+	{39, "weapon_sg556"},
+	{40, "weapon_ssg08"},
+	{60, "weapon_m4a1_silencer"},
+	{61, "weapon_usp_silencer"},
+	{63, "weapon_cz75a"},
+	{64, "weapon_revolver"},
+};
+
+static uint64_t g_iItemID = 65578;
 
 void RunInGameInspect(std::string& protoData)
 {
@@ -184,6 +245,102 @@ void RunInGameInspect(std::string& protoData)
 
 	auto byteArray = HexToBytes(protoData);
 	bool success = itemPreviewPB.ParseFromArray(byteArray.data(), byteArray.size());
+
+	if (!success)
+		return;
+
+	// Jump to main thread so that we won't run this from GUI thread
+	NextTick([itemPreviewPB]() {
+		auto entitySystem = GameEntitySystem();
+		auto globalVars = GetGameGlobals();
+
+		for (int i = 1; i < globalVars->maxClients; i++)
+		{
+			auto playerController = (CBasePlayerController*)entitySystem->GetEntityInstance(CEntityIndex(i));
+
+			if (!playerController) continue;
+
+			auto pawn = (CCSPlayerPawnBase*)playerController->m_hPawn().Get();
+
+			if (!pawn) continue;
+
+			auto itemServices = pawn->m_pItemServices();
+
+			if (!itemServices) continue;
+
+			const auto it = g_DefIndexMap.find(itemPreviewPB.defindex());
+			if (it == g_DefIndexMap.end())
+				continue;
+
+			auto weapon = (CBasePlayerWeapon*)itemServices->GiveNamedItem(it->second);
+
+			if (!weapon) continue;
+
+			auto& econItem = weapon->m_AttributeManager().m_Item();
+
+			auto itemID = g_iItemID++;
+			econItem.m_iItemID = itemID;
+			econItem.m_iItemIDHigh = itemID >> 32;
+			econItem.m_iItemIDLow = itemID & 0xFFFFFFFF;
+			econItem.m_iEntityQuality = 4;
+
+			FOR_EACH_VEC(*(econItem.m_NetworkedDynamicAttributes().m_Attributes()), i)
+			{
+				auto& attribute = (*(econItem.m_NetworkedDynamicAttributes().m_Attributes()))[i];
+
+				(*(weapon->m_AttributeManager().m_Item().m_NetworkedDynamicAttributes().m_Attributes())).Remove(i);
+				i--;
+			}
+
+			size_t stickerIndex = 0;
+			for (auto& sticker : itemPreviewPB.stickers())
+			{
+				int stickerID = g_Stickers[stickerIndex].stickerId != -1 ? g_Stickers[stickerIndex].stickerId : sticker.sticker_id();
+				int schema = sticker.slot();
+				std::string stickerPrefix = "sticker slot " + std::to_string(stickerIndex);
+
+				g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " id").c_str(), *((float*)&stickerID));
+				g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " schema").c_str(), *((float*)&schema));
+
+				if (sticker.has_wear() && sticker.wear() != 0)
+					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " wear").c_str(), sticker.wear());
+
+				if (sticker.has_rotation() && sticker.rotation() != 0)
+					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " rotation").c_str(), sticker.rotation());
+
+				if(sticker.has_offset_x() && sticker.offset_x() != 0)
+					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " offset x").c_str(), sticker.offset_x());
+
+				if (sticker.has_offset_y() && sticker.offset_y() != 0)
+					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " offset y").c_str(), sticker.offset_y());
+				stickerIndex++;
+			}
+
+			g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), "set item texture prefab", itemPreviewPB.paintindex());
+			g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), "set item texture wear", itemPreviewPB.paintwear());
+			g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), "set item texture seed", itemPreviewPB.paintseed());
+
+			bool isLegacyModel = false;
+
+			const auto legacyMapIt = g_LegacyModelMap.find(itemPreviewPB.paintindex());
+			if (legacyMapIt != g_LegacyModelMap.end())
+				isLegacyModel = legacyMapIt->second;
+
+			((CSkeletonInstance*)(weapon->m_CBodyComponent()->m_pSceneNode()))->m_modelState().m_MeshGroupMask = isLegacyModel ? 2 : 1;
+
+			CCSPlayer_ViewModelServices* pViewModelServices =
+				pawn->m_pViewModelServices();
+
+			if (!pViewModelServices) continue;
+
+			CBaseViewModel* pViewModel =
+				pViewModelServices->m_hViewModel()[0].Get();
+
+			if (!pViewModel) continue;
+
+			((CSkeletonInstance*)(pViewModel->m_CBodyComponent()->m_pSceneNode()))->m_modelState().m_MeshGroupMask = isLegacyModel ? 2 : 1;
+		}
+	});
 }
 
 void Draw(bool* isOpen)
