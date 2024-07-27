@@ -152,8 +152,8 @@ void RunInspect(std::string& protoData)
 		if (g_Stickers[i].stickerId != -1)
 		{
 			sticker.set_sticker_id(g_Stickers[i].stickerId);
-			i++;
 		}
+		i++;
 	}
 
 	std::vector<uint8_t> serializedProto;
