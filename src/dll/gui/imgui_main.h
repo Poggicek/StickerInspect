@@ -22,21 +22,21 @@
 namespace GUI
 {
 
-	struct WindowStates
-	{
-		bool m_bDemoWindow = false;
-		bool m_bStickerInspect = false;
-	};
+struct WindowStates
+{
+	bool m_bDemoWindow = false;
+	bool m_bStickerInspect = true;
+};
 
-	class GUICtx
-	{
-	public:
-		std::atomic<bool> m_bIsGUIOpen;
-		WindowStates m_WindowStates;
-	};
+class GUICtx
+{
+public:
+	std::atomic<bool> m_bIsGUIOpen;
+	WindowStates m_WindowStates;
+};
 
-	inline GUICtx g_GUICtx;
+inline GUICtx g_GUICtx;
 
-	void InitializeGUI();
+void InitializeGUI();
 
 } // namespace GUI

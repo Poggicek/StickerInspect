@@ -20,6 +20,6 @@
 namespace GUI
 {
 
-	void DrawMainWindow();
+void DrawMainWindow();
 
 } // namespace GUI
