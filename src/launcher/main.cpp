@@ -26,6 +26,9 @@
 #include <TlHelp32.h>
 #include <iostream>
 #include <filesystem>
+#include "winternl.h"
+
+typedef ULONG(NTAPI* lpfNtQueryInformationProcess)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
 
 DWORD GetProcessByName(const char* lpProcessName)
 {
@@ -60,9 +63,68 @@ class PauseWrapper
 public:
 	~PauseWrapper()
 	{
-		system("pause");
+		if(m_bPause)
+			system("pause");
 	}
+
+	bool m_bPause = true;
 };
+
+
+// Checks command line in PEB to see if it contains -insecure and -tools
+bool IsProcessInsecure(HANDLE hTargetProcess)
+{
+	const HMODULE NTDLL = GetModuleHandleA("ntdll.dll");
+	lpfNtQueryInformationProcess NtQueryInformationProcess = (lpfNtQueryInformationProcess)GetProcAddress(NTDLL, "NtQueryInformationProcess");
+
+	if (!NtQueryInformationProcess)
+		return false;
+
+	PROCESS_BASIC_INFORMATION pbi;
+	DWORD dwLength;
+	ULONG status = NtQueryInformationProcess(hTargetProcess, ProcessBasicInformation, &pbi, sizeof(PROCESS_BASIC_INFORMATION), &dwLength);
+
+	if (status)
+	{
+		printf("An error occured when trying query PBI.\n");
+		return false;
+	}
+
+	_PEB peb;
+	size_t dwSize;
+
+	if (!ReadProcessMemory(hTargetProcess, (void*)pbi.PebBaseAddress, &peb, sizeof(_PEB), &dwSize))
+	{
+		printf("An error occured when trying read PEB.\n");
+		return false;
+	}
+
+	UNICODE_STRING commandLine;
+	if (!ReadProcessMemory(hTargetProcess, &peb.ProcessParameters->CommandLine, &commandLine, sizeof(commandLine), nullptr))
+	{
+		printf("An error occured when reading command line.\n");
+		return false;
+	}
+
+	auto buffer = new WCHAR[commandLine.MaximumLength];
+
+	if (!buffer)
+		return false;
+
+	if (!ReadProcessMemory(hTargetProcess, commandLine.Buffer, buffer, commandLine.MaximumLength, nullptr))
+	{
+		printf("An error occured when reading command line buffer.\n");
+		return false;
+	}
+
+	auto string = std::wstring(buffer);
+
+	bool isInsecure = string.find(L" -insecure") != std::string::npos && string.find(L" -tools") != std::string::npos;
+
+	delete buffer;
+	return isInsecure;
+
+}
 
 int main()
 {
@@ -96,37 +158,54 @@ int main()
 		return -1;
 	}
 
+	if (!IsProcessInsecure(hTargetProcess))
+	{
+		MessageBoxA(nullptr, "CS2 is not running with -tools and -insecure launch params!!!", "Error", MB_ICONERROR);
+		printf("CS2 is not running with -tools and -insecure launch params!!!\n");
+		CloseHandle(hTargetProcess);
+		return -1;
+	}
+
 	const LPVOID lpPathAddress = VirtualAllocEx(hTargetProcess, nullptr, lstrlenA(lpFullDLLPath) + 1, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
 	if (lpPathAddress == nullptr)
 	{
-		printf("An error is occured when trying to allocate memory in the target process.\n");
+		printf("An error occured when trying to allocate memory in the target process.\n");
+		CloseHandle(hTargetProcess);
 		return -1;
 	}
 
 	const DWORD dwWriteResult = WriteProcessMemory(hTargetProcess, lpPathAddress, lpFullDLLPath, lstrlenA(lpFullDLLPath) + 1, nullptr);
 	if (dwWriteResult == 0)
 	{
-		printf("An error is occured when trying to write the DLL path in the target process.\n");
+		printf("An error occured when trying to write the DLL path in the target process.\n");
+		CloseHandle(hTargetProcess);
 		return -1;
 	}
 
 	const HMODULE hModule = GetModuleHandleA("kernel32.dll");
 	if (hModule == INVALID_HANDLE_VALUE || hModule == nullptr)
+	{
+		CloseHandle(hTargetProcess);
 		return -1;
+	}
 
 	const FARPROC lpFunctionAddress = GetProcAddress(hModule, "LoadLibraryA");
 	if (lpFunctionAddress == nullptr)
 	{
-		printf("An error is occured when trying to get \"LoadLibraryA\" address.\n");
+		printf("An error occured when trying to get \"LoadLibraryA\" address.\n");
+		CloseHandle(hTargetProcess);
 		return -1;
 	}
 
 	const HANDLE hThreadCreationResult = CreateRemoteThread(hTargetProcess, nullptr, 0, (LPTHREAD_START_ROUTINE)lpFunctionAddress, lpPathAddress, 0, nullptr);
 	if (hThreadCreationResult == INVALID_HANDLE_VALUE)
 	{
-		printf("An error is occured when trying to create the thread in the target process.\n");
+		printf("An error occured when trying to create the thread in the target process.\n");
+		CloseHandle(hTargetProcess);
 		return -1;
 	}
 
 	printf("DLL Injected !\n");
+	CloseHandle(hTargetProcess);
+	pauseWrapper.m_bPause = false; // Don't leave console open if there were no errors.
 }
