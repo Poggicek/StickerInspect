@@ -1,1 +1,1 @@
-# CS2FixesNext
+# Sticker Inspect
