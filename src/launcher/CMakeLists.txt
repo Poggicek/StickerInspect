@@ -6,7 +6,7 @@ file(GLOB_RECURSE HEADERS_LIST
   "*.h"
 )
 
-add_library(Launcher SHARED ${SOURCES_LIST} ${HEADERS_LIST})
+add_executable(Launcher ${SOURCES_LIST} ${HEADERS_LIST})
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "Source Files" FILES ${SOURCES_LIST})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "Header Files" FILES ${HEADERS_LIST})
