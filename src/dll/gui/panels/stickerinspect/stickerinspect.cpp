@@ -100,7 +100,7 @@ void DrawStickerIndex(int stickerIndex)
 	ImGui::PushID(stickerIndex);
 
 	std::string comboName = "Sticker #" + std::to_string(stickerIndex + 1);
-	if (ImGui::BeginCombo(comboName.c_str(), g_Stickers[stickerIndex].stickerName.c_str()))
+	if (ImGui::BeginCombo(comboName.c_str(), g_Stickers[stickerIndex].stickerName.c_str(), ImGuiComboFlags_HeightLarge))
 	{
 		if (ImGui::Selectable("<none>", g_Stickers[stickerIndex].stickerId == -1))
 		{
@@ -390,14 +390,10 @@ void Draw(bool* isOpen)
 
 
 	if (ImGui::Button("Refresh"))
-	{
 		g_isDirty = true;
-	}
 
 	for (int i = 0; i < 5; i++)
-	{
 		DrawStickerIndex(i);
-	}
 
 	{
 		const std::lock_guard<std::mutex> lock(g_ToolMutex);
