@@ -20,6 +20,7 @@
 namespace GUI
 {
 
+void HelpMarker(const char* desc);
 void DrawMainWindow();
 
 } // namespace GUI

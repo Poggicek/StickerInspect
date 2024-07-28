@@ -36,6 +36,7 @@
 #include "cs2_sdk/entity/weapons.h"
 #include "timer.h"
 #include "dllmain.h"
+#include "gui/gui.h"
 
 namespace GUI::StickerInspect
 {
@@ -52,6 +53,10 @@ static bool g_isDirty = true;
 static std::vector<std::pair<std::string, int>> g_vecStickers;
 static StickerOverride g_Stickers[5];
 static std::map<int, bool> g_LegacyModelMap;
+static bool g_bInspectOverride = false;
+static char g_szInspectBuffer[1024] = "";
+static std::mutex g_ToolMutex;
+SafetyHookInline g_toolsInspectHook{};
 
 void RefreshStickerList()
 {
@@ -251,9 +256,16 @@ void RunInGameInspect(std::string& protoData)
 
 	// Jump to main thread so that we won't run this from GUI thread
 	NextTick([itemPreviewPB]() {
+		if (!g_pSetAttribute)
+		{
+			MessageBoxA(nullptr, "In Game Inspect is unavailable, check for updates.", "Error", MB_ICONERROR);
+			return;
+		}
+
 		auto entitySystem = GameEntitySystem();
 		auto globalVars = GetGameGlobals();
 
+		// TODO: don't run this on every client, our client is prolly always first in list, or just check if the player is a bot or not.
 		for (int i = 1; i < globalVars->maxClients; i++)
 		{
 			auto playerController = (CBasePlayerController*)entitySystem->GetEntityInstance(CEntityIndex(i));
@@ -343,6 +355,28 @@ void RunInGameInspect(std::string& protoData)
 	});
 }
 
+void ProcessInspect(bool inMenuButton, bool inGameButton)
+{
+	const std::lock_guard<std::mutex> lock(g_ToolMutex);
+
+	CEconItemPreviewDataBlock itemPreviewPB;
+
+	auto inspectLink = std::string(g_szInspectBuffer);
+
+	if (inspectLink.find("csgo_econ_action_preview ") == 0)
+	{
+		auto protoData = inspectLink.substr(sizeof("csgo_econ_action_preview ") - 1 + 2); // +2 removes start nullbyte
+		protoData = protoData.substr(0, protoData.size() - 8); //  -8 removes checksum at end
+		printf("Proto data: %s\n", protoData.c_str());
+
+		if (inMenuButton)
+			RunInspect(protoData);
+		else if (inGameButton)
+			RunInGameInspect(protoData);
+	};
+
+}
+
 void Draw(bool* isOpen)
 {
 	if (g_isDirty)
@@ -365,36 +399,33 @@ void Draw(bool* isOpen)
 		DrawStickerIndex(i);
 	}
 
-	static char inspectBuffer[1024] = "";
-	ImGui::InputText("Inspect Link", inspectBuffer, sizeof inspectBuffer);
+	{
+		const std::lock_guard<std::mutex> lock(g_ToolMutex);
+		ImGui::InputText("Inspect Link", g_szInspectBuffer, sizeof g_szInspectBuffer);
+	}
 
 	bool inMenuButton = ImGui::Button("Inspect In Menu");
 	ImGui::SameLine();
 	bool inGameButton = ImGui::Button("Inspect In Game");
 
 	if (inMenuButton || inGameButton)
-	{
-		CEconItemPreviewDataBlock itemPreviewPB;
+		ProcessInspect(inMenuButton, inGameButton);
 
-		auto inspectLink = std::string(inspectBuffer);
-
-		if (inspectLink.find("csgo_econ_action_preview ") == 0)
-		{
-			auto protoData = inspectLink.substr(sizeof("csgo_econ_action_preview ") - 1 + 2); // +2 removes start nullbyte
-			protoData = protoData.substr(0, protoData.size() - 8); //  -8 removes checksum at end
-			printf("Proto data: %s\n", protoData.c_str());
-			
-			if (inMenuButton)
-				RunInspect(protoData);
-			else if(inGameButton)
-				RunInGameInspect(protoData);
-		};
-
-
-		printf("Inspect url %s\n", inspectBuffer);
-	}
+	ImGui::Checkbox("Enable tool inspect hook", &g_bInspectOverride);
+	ImGui::SameLine(); HelpMarker("Makes Inspect button inside workshop tools call our inspect instead");
 
 	ImGui::End();
+}
+
+// THIS RUNS ON NON GUI THREAD
+void OnToolInspect(void* qtObject)
+{
+	printf("Start inspect!\n");
+
+	if (g_bInspectOverride)
+		ProcessInspect(true, false);
+	else
+		g_toolsInspectHook.call(qtObject);
 }
 
 } // namespace GUI::StickerInspect

@@ -32,6 +32,7 @@
 #include <entity2/entitysystem.h>
 #include <iserver.h>
 #include <safetyhook.hpp>
+#include "gui/panels/stickerinspect/stickerinspect.h"
 
 class CAttributeList;
 
@@ -65,6 +66,7 @@ void InitModulesAndInterfaces()
 	Modules::fileSystem = std::make_unique<CModule>(ROOTBIN, "filesystem_stdio");
 	Modules::engine = std::make_unique<CModule>(ROOTBIN, "engine2");
 	Modules::schemaSystem = std::make_unique<CModule>(ROOTBIN, "schemasystem");
+	Modules::itemEditor = std::make_unique<CModule>(ROOTBIN, "tools/cs2_item_editor");
 	Modules::server = std::make_unique<CModule>(GAMEBIN, "server");
 
 	// Interfaces
@@ -78,6 +80,11 @@ void InitModulesAndInterfaces()
 	const byte sig[] = "\x40\x53\x41\x56\x41\x57\x48\x81\xEC\x90\x00\x00\x00\x0F\x29\x74\x24\x70";
 	int err;
 	g_pSetAttribute = (CAttributeListSetOrAddAttributeValueByName)Modules::server->FindSignature((byte*)sig, sizeof(sig) - 1, err);
+
+	if (err != SIG_OK)
+	{
+		MessageBoxA(nullptr, "Set attribute signature is invalid, check github page for updates, inspect in game will be unavailable", "Error", MB_ICONERROR);
+	}
 }
 
 void OnGameFrameHook(IServerGameDLL* server, bool simulating, bool bFirstTick, bool bLastTick)
@@ -98,13 +105,25 @@ void InitHooks()
 
 	if (gameFrameHook)
 		g_gameFrameHook = std::move(*gameFrameHook);
+
+	// Failed to build preview block: %s\n
+	const byte sig[] = "\x40\x55\x53\x57\x41\x56\x41\x57";
+	int err;
+	auto toolsInspectFn = (ToolsInspectWeaponPostBuild)Modules::itemEditor->FindSignature((byte*)sig, sizeof(sig) - 1, err);
+
+	if (err == SIG_OK)
+		GUI::StickerInspect::g_toolsInspectHook = safetyhook::create_inline(toolsInspectFn, GUI::StickerInspect::OnToolInspect);
+	else
+		printf("Tools inspect hook signature is invalid!\n");
 }
 
 unsigned long WINAPI initial_thread(void* reserved)
 {
+#ifdef _DEBUG
 	AllocConsole();
 	freopen_s((FILE**)stdout, "CONOUT$", "w", stdout);
 	freopen_s((FILE**)stdin, "CONIN$", "r", stdin);
+#endif
 	InitModulesAndInterfaces();
 	InitHooks();
 

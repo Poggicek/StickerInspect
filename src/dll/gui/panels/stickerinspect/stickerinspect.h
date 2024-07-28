@@ -17,9 +17,14 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <safetyhook.hpp>
+
 namespace GUI::StickerInspect
 {
 
 void Draw(bool* isOpen);
+void OnToolInspect(void* qtObject);
+
+extern SafetyHookInline g_toolsInspectHook;
 
 } // namespace GUI::StickerInspect
