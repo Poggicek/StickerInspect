@@ -121,7 +121,7 @@ bool IsProcessInsecure(HANDLE hTargetProcess)
 
 	bool isInsecure = string.find(L" -insecure") != std::string::npos && string.find(L" -tools") != std::string::npos;
 
-	delete buffer;
+	delete[] buffer;
 	return isInsecure;
 
 }
