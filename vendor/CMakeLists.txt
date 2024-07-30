@@ -50,6 +50,7 @@ include(imgui.cmake)
 
 set(SAFETYHOOK_FETCH_ZYDIS ON)
 add_subdirectory(safetyhook)
+add_subdirectory(json)
 
 set_target_properties(
 	HL2SDK

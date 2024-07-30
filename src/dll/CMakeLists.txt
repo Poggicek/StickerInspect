@@ -13,6 +13,7 @@ target_link_libraries(StickerInspect PRIVATE
   Protobufs
   imgui
   safetyhook
+  nlohmann_json
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "Source Files" FILES ${SOURCES_LIST})

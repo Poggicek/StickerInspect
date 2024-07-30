@@ -37,6 +37,11 @@
 #include "timer.h"
 #include "dllmain.h"
 #include "gui/gui.h"
+#include <nlohmann/json.hpp>
+#include <filesystem>
+#include <fstream>
+
+using json = nlohmann::json;
 
 namespace GUI::StickerInspect
 {
@@ -46,6 +51,7 @@ class StickerOverride
 public:
 	uint32_t stickerId = -1;
 	std::string stickerName = "<none>";
+	bool presetLoaded = false;
 };
 
 static int g_currentStickerIndex = -1;
@@ -57,6 +63,99 @@ static bool g_bInspectOverride = false;
 static char g_szInspectBuffer[1024] = "";
 static std::mutex g_ToolMutex;
 SafetyHookInline g_toolsInspectHook{};
+
+class Preset
+{
+public:
+	// we do this to make sure updates that might completely shift sticker ids dont break existing presets
+	void FetchStickerId()
+	{
+		for (int i = 0; i < 5; i++)
+		{
+			auto& classSticker = stickers[i];
+
+			for (const auto& sticker : g_vecStickers)
+			{
+				if (classSticker.stickerName == sticker.first)
+					classSticker.stickerId = sticker.second;
+			}
+		}
+	}
+
+	std::string name;
+	std::string inspectCommand;
+	StickerOverride stickers[5];
+};
+
+static std::vector<Preset> g_vecPresets;
+
+void SavePresets()
+{
+	json jsonFile = json::array();
+
+	for (auto const& preset : g_vecPresets) {
+		json jsonPreset = {
+			{"name", preset.name},
+			{"inspectCommand", preset.inspectCommand}
+		};
+
+		for (int i = 0; i < 5; i++)
+		{
+			auto& classSticker = preset.stickers[i];
+
+			if (!classSticker.presetLoaded)
+				continue;
+
+			jsonPreset["stickerSlots"][std::to_string(i)] = classSticker.stickerName;
+		}
+
+		jsonFile.push_back(jsonPreset);
+	}
+
+	auto mainFolder = std::filesystem::path(Plat_GetGameDirectory()) / "csgo/StickerInspect";
+	std::ofstream file(mainFolder / "presets.json");
+
+	jsonFile >> file;
+	file.close();
+}
+
+void LoadPresets()
+{
+	g_vecPresets.clear();
+	auto mainFolder = std::filesystem::path(Plat_GetGameDirectory()) / "csgo/StickerInspect";
+	std::ifstream file(mainFolder / "presets.json");
+
+	if (!file.is_open())
+		return;
+
+	try
+	{
+		json jsonFile;
+		jsonFile << file;
+		file.close();
+
+		for (auto const& jsonPreset : jsonFile) {
+			Preset preset;
+			preset.name = jsonPreset["name"].get<std::string>();
+			preset.inspectCommand = jsonPreset["inspectCommand"].get<std::string>();
+
+			for (auto& [key, value] : jsonPreset["stickerSlots"].items())
+			{
+				size_t stickerIndex = atoi(key.c_str());
+				preset.stickers[stickerIndex].stickerName = value;
+				preset.stickers[stickerIndex].presetLoaded = true;
+			}
+
+			preset.FetchStickerId();
+			g_vecPresets.push_back(preset);
+		}
+	}
+	catch (const std::exception& e)
+	{
+		ConMsg("Exception: %s", e.what());
+		file.close();
+	}
+}
 
 void RefreshStickerList()
 {
@@ -383,6 +482,7 @@ void Draw(bool* isOpen)
 	{
 		g_isDirty = false;
 		RefreshStickerList();
+		LoadPresets();
 	}
 
 	ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
@@ -409,6 +509,81 @@ void Draw(bool* isOpen)
 
 	ImGui::Checkbox("Enable tool inspect hook", &g_bInspectOverride);
 	ImGui::SameLine(); HelpMarker("Makes Inspect button inside workshop tools call our inspect instead");
+
+	ImGui::BeginChild("PresetsChild", ImVec2(0,0), ImGuiChildFlags_Border);
+
+	static char presetName[128];
+	ImGui::InputText("Preset Name", presetName, sizeof presetName);
+
+	if (ImGui::Button("Save Preset"))
+	{
+		Preset preset;
+		preset.name = presetName;
+		preset.inspectCommand = g_szInspectBuffer;
+
+		for (int i = 0; i < 5; i++)
+		{
+			const auto& sticker = g_Stickers[i];
+
+			if (sticker.stickerId == -1)
+				continue;
+
+			preset.stickers[i] = sticker;
+		}
+
+		g_vecPresets.push_back(preset);
+
+		SavePresets();
+	}
+
+	if (ImGui::BeginTable("Presets", 2))
+	{
+		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed);
+		ImGui::TableHeadersRow();
+		int stackIndex = 0;
+		for (auto it = g_vecPresets.begin(); it != g_vecPresets.end(); )
+		{
+			stackIndex++;
+			auto& preset = *it;
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+
+			ImGui::Text("%s", preset.name.c_str());
+			ImGui::TableNextColumn();
+			ImGui::PushID(stackIndex);
+			if (ImGui::SmallButton("Load"))
+			{
+				for (int i = 0; i < 5; i++)
+				{
+					const auto& sticker = preset.stickers[i];
+
+					if (sticker.stickerId == -1)
+						continue;
+
+					g_Stickers[i] = sticker;
+				}
+
+				strncpy(g_szInspectBuffer, preset.inspectCommand.c_str(), sizeof g_szInspectBuffer);
+			}
+
+			ImGui::SameLine();
+
+			if (ImGui::SmallButton("X"))
+			{
+				it = g_vecPresets.erase(it);
+				SavePresets();
+			}
+			else
+				++it;
+
+			ImGui::PopID();
+		}
+
+		ImGui::EndTable();
+	}
+
+	ImGui::EndChild();
 
 	ImGui::End();
 }
