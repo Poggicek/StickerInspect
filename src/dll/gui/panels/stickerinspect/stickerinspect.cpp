@@ -103,7 +103,7 @@ void SavePresets()
 		{
 			auto& classSticker = preset.stickers[i];
 
-			if (!classSticker.presetLoaded)
+			if (!classSticker.presetLoaded && classSticker.stickerId == -1)
 				continue;
 
 			jsonPreset["stickerSlots"][std::to_string(i)] = classSticker.stickerName;
@@ -121,6 +121,7 @@ void SavePresets()
 
 void LoadPresets()
 {
+	printf("loading stickers\n");
 	g_vecPresets.clear();
 	auto mainFolder = std::filesystem::path(Plat_GetGameDirectory()) / "csgo/StickerInspect";
 	std::ifstream file(mainFolder / "presets.json");
@@ -139,20 +140,25 @@ void LoadPresets()
 			preset.name = jsonPreset["name"].get<std::string>();
 			preset.inspectCommand = jsonPreset["inspectCommand"].get<std::string>();
 
-			for (auto& [key, value] : jsonPreset["stickerSlots"].items())
+			if (jsonPreset.contains("stickerSlots"))
 			{
-				size_t stickerIndex = atoi(key.c_str());
-				preset.stickers[stickerIndex].stickerName = value;
-				preset.stickers[stickerIndex].presetLoaded = true;
+				for (auto& [key, value] : jsonPreset["stickerSlots"].items())
+				{
+					size_t stickerIndex = atoi(key.c_str());
+					preset.stickers[stickerIndex].stickerName = value;
+					preset.stickers[stickerIndex].presetLoaded = true;
+				}
+
+				preset.FetchStickerId();
 			}
 
-			preset.FetchStickerId();
 			g_vecPresets.push_back(preset);
 		}
 	}
 	catch (const std::exception& e)
 	{
-		ConMsg("Exception: %s", e.what());
+		ConMsg("Exception: %s\n", e.what());
+		printf("Exception: %s\n", e.what());
 		file.close();
 	}
 }

@@ -81,7 +81,7 @@ namespace GUI
         std::filesystem::path fontPath = std::getenv("WINDIR");
         fontPath /= "Fonts";
         fontPath /= "Consola.ttf";
-        io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 13.0f);
+        io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 13.0f, nullptr, io.Fonts->GetGlyphRangesDefault());
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();
