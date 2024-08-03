@@ -50,6 +50,7 @@ class StickerOverride
 {
 public:
 	uint32_t stickerId = -1;
+	float floatOverride = -1;
 	std::string stickerName = "<none>";
 	bool presetLoaded = false;
 };
@@ -60,6 +61,7 @@ static std::vector<std::pair<std::string, int>> g_vecStickers;
 static StickerOverride g_Stickers[5];
 static std::map<int, bool> g_LegacyModelMap;
 static bool g_bInspectOverride = false;
+static bool g_bEnableFloatOverride = false;
 static char g_szInspectBuffer[1024] = "";
 static std::mutex g_ToolMutex;
 SafetyHookInline g_toolsInspectHook{};
@@ -106,7 +108,10 @@ void SavePresets()
 			if (!classSticker.presetLoaded && classSticker.stickerId == -1)
 				continue;
 
-			jsonPreset["stickerSlots"][std::to_string(i)] = classSticker.stickerName;
+			jsonPreset["stickerSlots"][std::to_string(i)] = {
+				{"name", classSticker.stickerName},
+				{"float", classSticker.floatOverride}
+			};
 		}
 
 		jsonFile.push_back(jsonPreset);
@@ -145,7 +150,8 @@ void LoadPresets()
 				for (auto& [key, value] : jsonPreset["stickerSlots"].items())
 				{
 					size_t stickerIndex = atoi(key.c_str());
-					preset.stickers[stickerIndex].stickerName = value;
+					preset.stickers[stickerIndex].stickerName = value["name"];
+					preset.stickers[stickerIndex].floatOverride = value["float"];
 					preset.stickers[stickerIndex].presetLoaded = true;
 				}
 
@@ -204,8 +210,7 @@ void DrawStickerIndex(int stickerIndex)
 {
 	ImGui::PushID(stickerIndex);
 
-	std::string comboName = "Sticker #" + std::to_string(stickerIndex + 1);
-	if (ImGui::BeginCombo(comboName.c_str(), g_Stickers[stickerIndex].stickerName.c_str(), ImGuiComboFlags_HeightLarge))
+	if (ImGui::BeginCombo("##stickerOverride", g_Stickers[stickerIndex].stickerName.c_str(), ImGuiComboFlags_HeightLarge))
 	{
 		if (ImGui::Selectable("<none>", g_Stickers[stickerIndex].stickerId == -1))
 		{
@@ -230,6 +235,15 @@ void DrawStickerIndex(int stickerIndex)
 
 		ImGui::EndCombo();
 	}
+
+	if (g_bEnableFloatOverride)
+	{
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
+		ImGui::InputFloat("##stickerFloat", &g_Stickers[stickerIndex].floatOverride);
+	}
+
+	ImGui::SameLine(); ImGui::Text("Sticker #%i", stickerIndex + 1);
 
 	ImGui::PopID();
 }
@@ -278,9 +292,10 @@ void RunInspect(std::string& protoData)
 	for (auto& sticker : *itemPreviewPB.mutable_stickers())
 	{
 		if (g_Stickers[i].stickerId != -1)
-		{
 			sticker.set_sticker_id(g_Stickers[i].stickerId);
-		}
+
+		if (g_bEnableFloatOverride && g_Stickers[i].floatOverride != -1)
+			sticker.set_wear(g_Stickers[i].floatOverride);
 		i++;
 	}
 
@@ -306,10 +321,10 @@ void RunInspect(std::string& protoData)
 	// Jump to main thread so that we won't run this from GUI thread
 	NextTick([outCommand]() {
 		Interfaces::engineServer->ServerCommand(outCommand.c_str());
-	});
+		});
 }
 
-std::map<int, const char*> g_DefIndexMap {
+std::map<int, const char*> g_DefIndexMap{
 	{1, "weapon_deagle"},
 	{2, "weapon_elite"},
 	{3, "weapon_fiveseven"},
@@ -412,20 +427,21 @@ void RunInGameInspect(std::string& protoData)
 			size_t stickerIndex = 0;
 			for (auto& sticker : itemPreviewPB.stickers())
 			{
-				int stickerID = g_Stickers[stickerIndex].stickerId != -1 ? g_Stickers[stickerIndex].stickerId : sticker.sticker_id();
-				int schema = sticker.slot();
+				const auto& stickerOverride = g_Stickers[stickerIndex];
+				const int stickerID = stickerOverride.stickerId != -1 ? stickerOverride.stickerId : sticker.sticker_id();
+				const int schema = sticker.slot();
 				std::string stickerPrefix = "sticker slot " + std::to_string(stickerIndex);
 
 				g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " id").c_str(), *((float*)&stickerID));
 				g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " schema").c_str(), *((float*)&schema));
 
-				if (sticker.has_wear() && sticker.wear() != 0)
-					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " wear").c_str(), sticker.wear());
+				if ((sticker.has_wear() && sticker.wear() != 0) || (g_bEnableFloatOverride && stickerOverride.floatOverride != -1))
+					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " wear").c_str(), (g_bEnableFloatOverride && stickerOverride.floatOverride == -1) ? sticker.wear() : stickerOverride.floatOverride);
 
 				if (sticker.has_rotation() && sticker.rotation() != 0)
 					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " rotation").c_str(), sticker.rotation());
 
-				if(sticker.has_offset_x() && sticker.offset_x() != 0)
+				if (sticker.has_offset_x() && sticker.offset_x() != 0)
 					g_pSetAttribute(econItem.m_NetworkedDynamicAttributes(), (stickerPrefix + " offset x").c_str(), sticker.offset_x());
 
 				if (sticker.has_offset_y() && sticker.offset_y() != 0)
@@ -457,7 +473,7 @@ void RunInGameInspect(std::string& protoData)
 
 			((CSkeletonInstance*)(pViewModel->m_CBodyComponent()->m_pSceneNode()))->m_modelState().m_MeshGroupMask = isLegacyModel ? 2 : 1;
 		}
-	});
+		});
 }
 
 void ProcessInspect(bool inMenuButton, bool inGameButton)
@@ -516,7 +532,10 @@ void Draw(bool* isOpen)
 	ImGui::Checkbox("Enable tool inspect hook", &g_bInspectOverride);
 	ImGui::SameLine(); HelpMarker("Makes Inspect button inside workshop tools call our inspect instead");
 
-	ImGui::BeginChild("PresetsChild", ImVec2(0,0), ImGuiChildFlags_Border);
+	ImGui::Checkbox("Enable float override", &g_bEnableFloatOverride);
+	ImGui::SameLine(); HelpMarker("Adds a new input for each sticker to override the float value\nUsing -1 as float disables float override for a specific sticker");
+
+	ImGui::BeginChild("PresetsChild", ImVec2(0, 0), ImGuiChildFlags_Border);
 
 	static char presetName[128];
 	ImGui::InputText("Preset Name", presetName, sizeof presetName);
@@ -564,10 +583,10 @@ void Draw(bool* isOpen)
 				{
 					const auto& sticker = preset.stickers[i];
 
-					if (sticker.stickerId == -1)
-						continue;
-
 					g_Stickers[i] = sticker;
+
+					if (sticker.stickerId == -1)
+						g_Stickers[i].stickerName = "<none>";
 				}
 
 				strncpy(g_szInspectBuffer, preset.inspectCommand.c_str(), sizeof g_szInspectBuffer);
